@@ -5,6 +5,7 @@ import {
   deleteDoc,
   onSnapshot,
   getDocs,
+  getDoc,
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -16,34 +17,75 @@ const EVENTS_COLLECTION = "events";
 const STAFF_COLLECTION = "staff";
 const NOTES_COLLECTION = "notes";
 const LOCATIONS_COLLECTION = "locations";
+const SYSTEM_METADATA_COLLECTION = "system_metadata";
+const SEED_DOC_ID = "seed_state";
+
+let hasCheckedSeed = false;
+
+// One-time safe database seeder that only runs on virgin databases
+export async function initializeDatabaseIfNeeded(): Promise<void> {
+  if (!db || hasCheckedSeed) return;
+  hasCheckedSeed = true;
+  try {
+    const seedDocRef = doc(db, SYSTEM_METADATA_COLLECTION, SEED_DOC_ID);
+    const seedSnap = await getDoc(seedDocRef);
+    
+    if (!seedSnap.exists()) {
+      // Check if any collection already has data
+      const staffSnap = await getDocs(collection(db, STAFF_COLLECTION));
+      if (staffSnap.empty) {
+        const batch = writeBatch(db);
+        INITIAL_STAFF_MEMBERS.forEach((member) => {
+          batch.set(doc(db, STAFF_COLLECTION, member.id), member);
+        });
+        INITIAL_LOCATIONS.forEach((loc) => {
+          batch.set(doc(db, LOCATIONS_COLLECTION, loc.id), loc);
+        });
+        const initEvents = getInitialEvents();
+        initEvents.forEach((evt) => {
+          batch.set(doc(db, EVENTS_COLLECTION, evt.id), evt);
+        });
+        INITIAL_STAFF_NOTES.forEach((note) => {
+          batch.set(doc(db, NOTES_COLLECTION, note.id), note);
+        });
+        batch.set(seedDocRef, {
+          initialized: true,
+          seededAt: new Date().toISOString(),
+        });
+        await batch.commit();
+      } else {
+        await setDoc(seedDocRef, {
+          initialized: true,
+          markedAt: new Date().toISOString(),
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("Database initialization check:", e);
+  }
+}
+
+// Trigger initial seed check on startup
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    initializeDatabaseIfNeeded().catch(() => {});
+  }, 100);
+}
 
 // Real-time Firestore Listeners with safety guards
 export function subscribeToStaff(onUpdate: (staff: StaffMember[]) => void): () => void {
   try {
     if (!db) return () => {};
     const staffCol = collection(db, STAFF_COLLECTION);
-    return onSnapshot(staffCol, async (snapshot) => {
+    return onSnapshot(staffCol, (snapshot) => {
       if (snapshot.empty) {
-        // Seed initial staff if empty
-        try {
-          const batch = writeBatch(db);
-          INITIAL_STAFF_MEMBERS.forEach((member) => {
-            const memberRef = doc(db, STAFF_COLLECTION, member.id);
-            batch.set(memberRef, member);
-          });
-          await batch.commit();
-        } catch (e) {
-          console.warn("Failed seeding initial staff to Firestore:", e);
-        }
-        onUpdate(INITIAL_STAFF_MEMBERS);
+        onUpdate([]);
       } else {
         const staffList: StaffMember[] = [];
         snapshot.forEach((docSnap) => {
           staffList.push(docSnap.data() as StaffMember);
         });
-        if (staffList.length > 0) {
-          onUpdate(staffList);
-        }
+        onUpdate(staffList);
       }
     }, (err) => {
       console.warn("Firestore staff subscription error:", err);
@@ -58,20 +100,9 @@ export function subscribeToEvents(onUpdate: (events: CalendarEvent[]) => void): 
   try {
     if (!db) return () => {};
     const eventsCol = collection(db, EVENTS_COLLECTION);
-    return onSnapshot(eventsCol, async (snapshot) => {
+    return onSnapshot(eventsCol, (snapshot) => {
       if (snapshot.empty) {
-        const initEvents = getInitialEvents();
-        try {
-          const batch = writeBatch(db);
-          initEvents.forEach((evt) => {
-            const evtRef = doc(db, EVENTS_COLLECTION, evt.id);
-            batch.set(evtRef, evt);
-          });
-          await batch.commit();
-        } catch (e) {
-          console.warn("Failed seeding initial events to Firestore:", e);
-        }
-        onUpdate(initEvents);
+        onUpdate([]);
       } else {
         const eventsList: CalendarEvent[] = [];
         snapshot.forEach((docSnap) => {
@@ -92,19 +123,9 @@ export function subscribeToNotes(onUpdate: (notes: StaffNote[]) => void): () => 
   try {
     if (!db) return () => {};
     const notesCol = collection(db, NOTES_COLLECTION);
-    return onSnapshot(notesCol, async (snapshot) => {
+    return onSnapshot(notesCol, (snapshot) => {
       if (snapshot.empty) {
-        try {
-          const batch = writeBatch(db);
-          INITIAL_STAFF_NOTES.forEach((note) => {
-            const noteRef = doc(db, NOTES_COLLECTION, note.id);
-            batch.set(noteRef, note);
-          });
-          await batch.commit();
-        } catch (e) {
-          console.warn("Failed seeding initial notes to Firestore:", e);
-        }
-        onUpdate(INITIAL_STAFF_NOTES);
+        onUpdate([]);
       } else {
         const notesList: StaffNote[] = [];
         snapshot.forEach((docSnap) => {
@@ -126,19 +147,9 @@ export function subscribeToLocations(onUpdate: (locs: SchoolLocation[]) => void)
   try {
     if (!db) return () => {};
     const locsCol = collection(db, LOCATIONS_COLLECTION);
-    return onSnapshot(locsCol, async (snapshot) => {
+    return onSnapshot(locsCol, (snapshot) => {
       if (snapshot.empty) {
-        try {
-          const batch = writeBatch(db);
-          INITIAL_LOCATIONS.forEach((loc) => {
-            const locRef = doc(db, LOCATIONS_COLLECTION, loc.id);
-            batch.set(locRef, loc);
-          });
-          await batch.commit();
-        } catch (e) {
-          console.warn("Failed seeding initial locations to Firestore:", e);
-        }
-        onUpdate(INITIAL_LOCATIONS);
+        onUpdate([]);
       } else {
         const locList: SchoolLocation[] = [];
         snapshot.forEach((docSnap) => {
@@ -168,7 +179,6 @@ export async function deleteEventFromCloud(eventId: string): Promise<void> {
 
 export async function deleteBatchEventsFromCloud(eventIds: string[]): Promise<void> {
   if (eventIds.length === 0) return;
-  // Split into chunks of 450 (Firestore limit is 500 per batch)
   const chunkSize = 450;
   for (let i = 0; i < eventIds.length; i += chunkSize) {
     const chunk = eventIds.slice(i, i + chunkSize);
@@ -185,7 +195,6 @@ export async function deleteAllEventsFromCloud(): Promise<void> {
   const eventsCol = collection(db, EVENTS_COLLECTION);
   const snap = await getDocs(eventsCol);
   if (snap.empty) return;
-  
   const ids = snap.docs.map(d => d.id);
   await deleteBatchEventsFromCloud(ids);
 }
@@ -212,6 +221,38 @@ export async function saveNoteToCloud(note: StaffNote): Promise<void> {
 export async function deleteNoteFromCloud(noteId: string): Promise<void> {
   const noteRef = doc(db, NOTES_COLLECTION, noteId);
   await deleteDoc(noteRef);
+}
+
+export async function deleteBatchNotesFromCloud(noteIds: string[]): Promise<void> {
+  if (noteIds.length === 0) return;
+  const chunkSize = 450;
+  for (let i = 0; i < noteIds.length; i += chunkSize) {
+    const chunk = noteIds.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    chunk.forEach((id) => {
+      const ref = doc(db, NOTES_COLLECTION, id);
+      batch.delete(ref);
+    });
+    await batch.commit();
+  }
+}
+
+export async function deleteAllNotesFromCloud(): Promise<void> {
+  const notesCol = collection(db, NOTES_COLLECTION);
+  const snap = await getDocs(notesCol);
+  if (snap.empty) return;
+  const ids = snap.docs.map(d => d.id);
+  await deleteBatchNotesFromCloud(ids);
+}
+
+export async function resetInitialNotesInCloud(): Promise<void> {
+  await deleteAllNotesFromCloud();
+  const batch = writeBatch(db);
+  INITIAL_STAFF_NOTES.forEach((note) => {
+    const ref = doc(db, NOTES_COLLECTION, note.id);
+    batch.set(ref, note);
+  });
+  await batch.commit();
 }
 
 export async function saveAllLocationsToCloud(locations: SchoolLocation[]): Promise<void> {

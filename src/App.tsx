@@ -36,6 +36,8 @@ import {
   saveAllStaffToCloud,
   saveNoteToCloud,
   deleteNoteFromCloud,
+  deleteBatchNotesFromCloud,
+  deleteAllNotesFromCloud,
   saveAllLocationsToCloud
 } from './services/cloudSync';
 import { Header } from './components/Header';
@@ -279,6 +281,27 @@ export default function App() {
       await deleteNoteFromCloud(id);
     } catch (err) {
       console.warn('Delete note failed in Firestore:', err);
+    }
+  };
+
+  // Clear all notes (or only normal notes)
+  const handleClearNotes = async (includeUrgent: boolean = true) => {
+    if (includeUrgent) {
+      setStaffNotes([]);
+      try {
+        await deleteAllNotesFromCloud();
+      } catch (err) {
+        console.error('Failed to clear all notes from Firestore:', err);
+      }
+    } else {
+      const remainingNotes = staffNotes.filter(n => n.priority === 'important' || n.isPinned);
+      const idsToDelete = staffNotes.filter(n => n.priority !== 'important' && !n.isPinned).map(n => n.id);
+      setStaffNotes(remainingNotes);
+      try {
+        await deleteBatchNotesFromCloud(idsToDelete);
+      } catch (err) {
+        console.error('Failed to clear normal notes from Firestore:', err);
+      }
     }
   };
 
@@ -691,6 +714,7 @@ export default function App() {
         activeUser={activeUser}
         onAddNote={handleAddNote}
         onDeleteNote={handleDeleteNote}
+        onClearAllNotes={handleClearNotes}
       />
 
       {/* Print / Export Modal */}
@@ -725,9 +749,11 @@ export default function App() {
         isOpen={isClearAgendaModalOpen}
         onClose={() => setIsClearAgendaModalOpen(false)}
         events={events}
+        notes={staffNotes}
         staffMembers={staffMembers}
         selectedDate={selectedDate}
         onClearEvents={handleClearEvents}
+        onClearNotes={handleClearNotes}
         onResetDemoEvents={handleResetDemoEvents}
       />
 

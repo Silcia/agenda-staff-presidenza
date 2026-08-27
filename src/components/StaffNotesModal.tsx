@@ -8,8 +8,10 @@ import {
   Send, 
   Clock, 
   AlertCircle,
+  AlertTriangle,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  Filter
 } from 'lucide-react';
 import { StaffNote, StaffMember } from '../types';
 import { formatTimeAgo } from '../utils/dateUtils';
@@ -22,6 +24,7 @@ interface StaffNotesModalProps {
   activeUser: StaffMember;
   onAddNote: (text: string, isPinned?: boolean, priority?: 'normal' | 'important') => Promise<void>;
   onDeleteNote: (id: string) => Promise<void>;
+  onClearAllNotes?: (includeUrgent: boolean) => Promise<void>;
 }
 
 export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
@@ -32,11 +35,16 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
   activeUser,
   onAddNote,
   onDeleteNote,
+  onClearAllNotes,
 }) => {
   const [newNoteText, setNewNoteText] = useState('');
   const [isPinned, setIsPinned] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearIncludeUrgent, setClearIncludeUrgent] = useState(true);
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   if (!isOpen) return null;
 
@@ -54,6 +62,33 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  const handleDeleteSingle = async (noteId: string) => {
+    setDeletingId(noteId);
+    try {
+      await onDeleteNote(noteId);
+    } catch (err) {
+      console.error('Errore durante eliminazione nota:', err);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleExecuteClearAll = async () => {
+    if (!onClearAllNotes) return;
+    setIsClearingAll(true);
+    try {
+      await onClearAllNotes(clearIncludeUrgent);
+      setShowClearConfirm(false);
+    } catch (err) {
+      console.error('Errore durante cancellazione massiva note:', err);
+    } finally {
+      setIsClearingAll(false);
+    }
+  };
+
+  const urgentCount = notes.filter(n => n.priority === 'important' || n.isPinned).length;
+  const normalCount = notes.length - urgentCount;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
@@ -119,7 +154,7 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
                     onChange={(e) => setIsImportant(e.target.checked)}
                     className="w-4 h-4 rounded text-[#E63946] focus:ring-[#E63946]"
                   />
-                  <span>Priorità Alta</span>
+                  <span>Priorità Alta / Urgente</span>
                 </label>
               </div>
 
@@ -134,19 +169,106 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
             </div>
           </form>
 
-          {/* Notes List */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider">
-              Note Attive ({notes.length}):
-            </h4>
+          {/* Clear Notes Confirmation Box */}
+          {showClearConfirm && (
+            <div className="p-4 rounded-2xl bg-red-50 border-2 border-red-500 animate-in fade-in zoom-in-95 duration-150 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-tight text-red-950">
+                    Conferma cancellazione bacheca note
+                  </h4>
+                  <p className="text-xs text-red-800 mt-0.5">
+                    Stai per eliminare le comunicazioni attualmente salvate nella bacheca cloud dello staff.
+                  </p>
+                </div>
+              </div>
 
+              <div className="bg-white p-3 rounded-xl border border-red-200 space-y-2">
+                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="clear_scope"
+                    checked={clearIncludeUrgent === true}
+                    onChange={() => setClearIncludeUrgent(true)}
+                    className="w-4 h-4 text-red-600 focus:ring-red-500"
+                  />
+                  <span>Cancella <strong>TUTTE le note</strong> ({notes.length} note, comprese {urgentCount} urgenti/fissate)</span>
+                </label>
+
+                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="clear_scope"
+                    checked={clearIncludeUrgent === false}
+                    onChange={() => setClearIncludeUrgent(false)}
+                    className="w-4 h-4 text-red-600 focus:ring-red-500"
+                  />
+                  <span>Cancella solo note ordinarie ({normalCount} note, mantieni le {urgentCount} urgenti/fissate)</span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirm(false)}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteClearAll}
+                  disabled={isClearingAll}
+                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isClearingAll ? 'Cancellazione...' : 'Conferma Eliminazione'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Notes List Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                Note Attive
+              </h4>
+              <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 text-[10px] font-black">
+                {notes.length}
+              </span>
+              {urgentCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-[#E63946] border border-rose-200 text-[10px] font-black">
+                  {urgentCount} urgenti/fissate
+                </span>
+              )}
+            </div>
+
+            {notes.length > 0 && onClearAllNotes && !showClearConfirm && (
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(true)}
+                className="px-2.5 py-1 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg flex items-center gap-1 transition-colors border border-transparent hover:border-red-200"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Cancella Tutte</span>
+              </button>
+            )}
+          </div>
+
+          {/* Notes Items */}
+          <div className="space-y-3">
             {notes.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-xs italic font-medium border-2 border-dashed border-slate-200 rounded-xl">
-                Nessuna nota presente in bacheca.
+                Nessuna nota presente in bacheca. Tutte le note sono state cancellate.
               </div>
             ) : (
               notes.map((note) => {
                 const author = staffMembers.find(m => m.id === note.authorId);
+                const isItemDeleting = deletingId === note.id;
                 return (
                   <div
                     key={note.id}
@@ -154,7 +276,7 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
                       note.isPinned 
                         ? 'bg-rose-50/70 border-[#E63946] shadow-xs' 
                         : 'bg-white border-slate-200'
-                    }`}
+                    } ${isItemDeleting ? 'opacity-40 pointer-events-none' : ''}`}
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2.5">
@@ -175,20 +297,23 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
 
                       <div className="flex items-center gap-2">
                         {note.priority === 'important' && (
-                          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-[#E63946] text-white">
-                            IMPORTANTE
+                          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-[#E63946] text-white shadow-xs">
+                            URGENTE / IMPORTANTE
                           </span>
                         )}
                         {note.isPinned && (
-                          <Pin className="w-3.5 h-3.5 text-[#E63946] fill-[#E63946]" />
+                          <span title="Fissata in alto">
+                            <Pin className="w-3.5 h-3.5 text-[#E63946] fill-[#E63946]" />
+                          </span>
                         )}
                         <button
                           type="button"
-                          onClick={() => onDeleteNote(note.id)}
-                          className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors"
-                          title="Elimina nota"
+                          onClick={() => handleDeleteSingle(note.id)}
+                          disabled={isItemDeleting}
+                          className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                          title="Elimina definitivamente questa nota"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -219,4 +344,3 @@ export const StaffNotesModal: React.FC<StaffNotesModalProps> = ({
     </div>
   );
 };
-

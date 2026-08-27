@@ -12,21 +12,24 @@ import {
   RotateCcw,
   Sparkles,
   ShieldAlert,
-  Clock
+  Clock,
+  MessageSquareQuote
 } from 'lucide-react';
-import { StaffMember, CalendarEvent, StaffMemberId } from '../types';
+import { StaffMember, CalendarEvent, StaffNote, StaffMemberId } from '../types';
 import { formatDateItalian, getTodayString } from '../utils/dateUtils';
 import { EVENT_CATEGORIES } from '../data/staffConfig';
 
-export type ClearScope = 'selected_date' | 'past_events' | 'date_range' | 'staff_member' | 'all_events';
+export type ClearScope = 'selected_date' | 'past_events' | 'date_range' | 'staff_member' | 'all_events' | 'notes_only';
 
 interface ClearAgendaModalProps {
   isOpen: boolean;
   onClose: () => void;
   events: CalendarEvent[];
+  notes?: StaffNote[];
   staffMembers: StaffMember[];
   selectedDate: string;
   onClearEvents: (eventIdsToDelete: string[], reasonDescription: string) => Promise<void>;
+  onClearNotes?: (includeUrgent: boolean) => Promise<void>;
   onResetDemoEvents: () => Promise<void>;
 }
 
@@ -34,9 +37,11 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
   isOpen,
   onClose,
   events,
+  notes = [],
   staffMembers,
   selectedDate,
   onClearEvents,
+  onClearNotes,
   onResetDemoEvents,
 }) => {
   const todayStr = getTodayString();
@@ -45,12 +50,14 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
   const [rangeEnd, setRangeEnd] = useState<string>(selectedDate || todayStr);
   const [targetMemberId, setTargetMemberId] = useState<StaffMemberId>(staffMembers[0]?.id || 'sanvitale');
   const [excludeUrgent, setExcludeUrgent] = useState<boolean>(false);
+  const [alsoClearNotes, setAlsoClearNotes] = useState<boolean>(false);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [isResetting, setIsResetting] = useState<boolean>(false);
   const [showConfirmStep, setShowConfirmStep] = useState<boolean>(false);
 
   // Compute matching events to be cleared based on selection (ALWAYS before any conditional return!)
   const matchingEvents = useMemo(() => {
+    if (scope === 'notes_only') return [];
     if (!Array.isArray(events)) return [];
     return events.filter(evt => {
       if (!evt) return false;
@@ -80,7 +87,8 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
 
   if (!isOpen) return null;
 
-  const countToDelete = matchingEvents.length;
+  const countEventsToDelete = matchingEvents.length;
+  const countNotesToDelete = (scope === 'notes_only' || alsoClearNotes) ? notes.length : 0;
 
   const getScopeDescription = () => {
     switch (scope) {
@@ -96,21 +104,27 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
       }
       case 'all_events':
         return 'Tutti gli impegni indistintamente (Svuotamento totale dell\'agenda)';
+      case 'notes_only':
+        return 'Tutte le note e comunicazioni della bacheca staff';
       default:
-        return 'Impegni selezionati';
+        return 'Elementi selezionati';
     }
   };
 
   const handleExecuteClear = async () => {
-    if (countToDelete === 0) return;
     setIsDeleting(true);
     try {
-      const ids = matchingEvents.map(e => e.id);
-      await onClearEvents(ids, getScopeDescription());
+      if (countEventsToDelete > 0) {
+        const ids = matchingEvents.map(e => e.id);
+        await onClearEvents(ids, getScopeDescription());
+      }
+      if ((scope === 'notes_only' || alsoClearNotes) && onClearNotes) {
+        await onClearNotes(!excludeUrgent);
+      }
       setShowConfirmStep(false);
       onClose();
     } catch (err) {
-      console.error('Errore durante la pulizia impegni:', err);
+      console.error('Errore durante la pulizia:', err);
     } finally {
       setIsDeleting(false);
     }
@@ -128,6 +142,8 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
     }
   };
 
+  const canProceed = countEventsToDelete > 0 || countNotesToDelete > 0 || (scope === 'notes_only' && notes.length > 0);
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl border-2 border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -140,13 +156,13 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
-                <span>Pulizia & Rimozione Impegni</span>
+                <span>Pulizia & Rimozione Impegni / Note</span>
                 <span className="bg-red-500/20 text-red-400 text-[10px] font-black px-2 py-0.5 rounded-md border border-red-500/30">
                   Cloud Live
                 </span>
               </h2>
               <p className="text-xs text-slate-400 font-medium">
-                Gestisci la cancellazione selettiva o totale degli eventi in agenda
+                Gestisci la cancellazione selettiva o totale degli eventi e delle note in bacheca
               </p>
             </div>
           </div>
@@ -168,7 +184,7 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
               <div className="space-y-2.5">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                   <Filter className="w-3.5 h-3.5 text-[#E63946]" />
-                  <span>Scegli cosa desideri pulire dall'agenda:</span>
+                  <span>Scegli l'operazione di pulizia desiderata:</span>
                 </label>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -259,7 +275,7 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
 
                 </div>
 
-                {/* 5. Svuotamento Totale dell'Agenda (Opzione Massiva) */}
+                {/* 5. Svuotamento Totale dell'Agenda */}
                 <div
                   onClick={() => setScope('all_events')}
                   className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
@@ -276,7 +292,28 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
                     {scope === 'all_events' && <Check className="w-4 h-4 text-red-600" />}
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Cancella l'intero archivio degli appuntamenti per ricominciare da zero
+                    Cancella tutti gli appuntamenti salvati per ricominciare da zero
+                  </p>
+                </div>
+
+                {/* 6. Cancella solo Note di Bacheca */}
+                <div
+                  onClick={() => setScope('notes_only')}
+                  className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
+                    scope === 'notes_only'
+                      ? 'border-[#E63946] bg-rose-50 text-[#121212] font-bold shadow-sm'
+                      : 'border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MessageSquareQuote className={`w-4 h-4 ${scope === 'notes_only' ? 'text-[#E63946]' : 'text-slate-500'}`} />
+                      <span className="font-bold text-xs">Svuota solo Bacheca Note ({notes.length} note)</span>
+                    </div>
+                    {scope === 'notes_only' && <Check className="w-4 h-4 text-[#E63946]" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Elimina tutte le comunicazioni e i promemoria dello staff (anche urgenti/fissate)
                   </p>
                 </div>
               </div>
@@ -324,59 +361,86 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
                 </div>
               )}
 
-              {/* Preservation Checkbox */}
-              <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-amber-50 border border-amber-200">
-                <input
-                  type="checkbox"
-                  id="exclude-urgent-checkbox"
-                  checked={excludeUrgent}
-                  onChange={(e) => setExcludeUrgent(e.target.checked)}
-                  className="w-4 h-4 text-[#E63946] rounded focus:ring-[#E63946] border-slate-300"
-                />
-                <label htmlFor="exclude-urgent-checkbox" className="text-xs font-semibold text-amber-900 cursor-pointer">
-                  Salva gli impegni contrassegnati come <span className="font-black text-amber-950 uppercase">"Urgente / Indifferibile"</span>
-                </label>
-              </div>
+              {/* Options & Preservation Checkbox */}
+              {scope !== 'notes_only' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                    <input
+                      type="checkbox"
+                      id="exclude-urgent-checkbox"
+                      checked={excludeUrgent}
+                      onChange={(e) => setExcludeUrgent(e.target.checked)}
+                      className="w-4 h-4 text-[#E63946] rounded focus:ring-[#E63946] border-slate-300"
+                    />
+                    <label htmlFor="exclude-urgent-checkbox" className="text-xs font-semibold text-amber-900 cursor-pointer">
+                      Salva ed escludi gli impegni contrassegnati come <span className="font-black text-amber-950 uppercase">"Urgente / Indifferibile"</span>
+                    </label>
+                  </div>
+
+                  {notes.length > 0 && onClearNotes && (
+                    <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                      <input
+                        type="checkbox"
+                        id="also-clear-notes-checkbox"
+                        checked={alsoClearNotes}
+                        onChange={(e) => setAlsoClearNotes(e.target.checked)}
+                        className="w-4 h-4 text-[#E63946] rounded focus:ring-[#E63946] border-slate-300"
+                      />
+                      <label htmlFor="also-clear-notes-checkbox" className="text-xs font-bold text-slate-700 cursor-pointer flex items-center gap-1.5">
+                        <MessageSquareQuote className="w-3.5 h-3.5 text-[#E63946]" />
+                        <span>Includi anche la cancellazione di tutte le note in bacheca ({notes.length} note)</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Status / Matching preview */}
               <div className={`p-4 rounded-2xl border-2 flex items-center justify-between ${
-                countToDelete > 0 
+                canProceed 
                   ? 'bg-red-50/80 border-red-200 text-red-900'
                   : 'bg-slate-50 border-slate-200 text-slate-600'
               }`}>
                 <div>
                   <div className="text-xs font-black uppercase tracking-wider">
-                    {countToDelete > 0 ? 'Impegni che verranno rimossi:' : 'Nessun impegno trovato con questi criteri'}
+                    {scope === 'notes_only' ? (
+                      `Note che verranno rimosse: ${notes.length}`
+                    ) : countEventsToDelete > 0 ? (
+                      `Impegni che verranno rimossi: ${countEventsToDelete}${alsoClearNotes ? ` (+ ${notes.length} note)` : ''}`
+                    ) : (
+                      'Nessun elemento trovato con questi criteri'
+                    )}
                   </div>
                   <div className="text-[11px] opacity-80 mt-0.5">
                     {getScopeDescription()}
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className={`text-2xl font-black tabular-nums ${countToDelete > 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                    {countToDelete}
-                  </span>
-                  <span className="text-xs font-bold ml-1">impegni</span>
+                <div className="text-lg font-black shrink-0 ml-3">
+                  {scope === 'notes_only' ? notes.length : (countEventsToDelete + (alsoClearNotes ? notes.length : 0))}
                 </div>
               </div>
 
-              {/* Mini List Preview if matching > 0 */}
-              {countToDelete > 0 && (
-                <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-36 overflow-y-auto">
-                  <div className="bg-slate-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-600 sticky top-0 border-b border-slate-200">
-                    Anteprima eventi da cancellare ({matchingEvents.length}):
+              {/* Event preview list */}
+              {matchingEvents.length > 0 && scope !== 'notes_only' && (
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Anteprima primi impegni selezionati:
                   </div>
-                  <div className="divide-y divide-slate-100 text-xs">
-                    {matchingEvents.slice(0, 15).map((evt) => {
-                      const cat = evt.category && EVENT_CATEGORIES[evt.category] ? EVENT_CATEGORIES[evt.category] : null;
+                  <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white">
+                    {matchingEvents.slice(0, 15).map(evt => {
+                      const catConfig = EVENT_CATEGORIES[evt.category];
                       return (
-                        <div key={evt.id} className="px-3 py-2 flex items-center justify-between hover:bg-slate-50">
-                          <div className="flex items-center gap-2 truncate pr-2">
-                            <span className="font-bold text-slate-800 truncate">{evt.title || 'Senza titolo'}</span>
-                            <span className="text-[10px] text-slate-400">({evt.date || ''} • {evt.startTime || ''}-{evt.endTime || ''})</span>
+                        <div key={evt.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-bold text-slate-700 truncate">{evt.title}</span>
+                            {evt.isUrgent && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-red-100 text-red-700">
+                                URGENTE
+                              </span>
+                            )}
                           </div>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
-                            {cat?.label || evt.category || 'Impegno'}
+                          <span className="text-[10px] font-semibold text-slate-500 shrink-0">
+                            {evt.date} • {evt.startTime}
                           </span>
                         </div>
                       );
@@ -402,7 +466,12 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
                     Conferma Rimozione Definitiva
                   </h3>
                   <p className="text-xs text-red-800 mt-1 leading-relaxed">
-                    Stai per eliminare definitivamente <strong>{countToDelete} impegni</strong> dall'agenda ({getScopeDescription()}).
+                    Stai per eliminare definitivamente{' '}
+                    <strong>
+                      {scope === 'notes_only' 
+                        ? `${notes.length} note` 
+                        : `${countEventsToDelete} impegni${alsoClearNotes ? ` e ${notes.length} note` : ''}`}
+                    </strong> ({getScopeDescription()}).
                   </p>
                   <p className="text-xs text-red-700 font-semibold mt-2">
                     L'azione si rifletterà istantaneamente su tutti i dispositivi connessi tramite il Cloud Firebase.
@@ -451,16 +520,16 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
             {!showConfirmStep ? (
               <button
                 type="button"
-                disabled={countToDelete === 0}
+                disabled={!canProceed}
                 onClick={() => setShowConfirmStep(true)}
                 className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all ${
-                  countToDelete > 0
+                  canProceed
                     ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-2 focus:ring-red-500 hover:scale-[1.02] active:scale-[0.98]'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
               >
                 <Trash2 className="w-4 h-4" />
-                <span>Procedi alla Pulizia ({countToDelete})</span>
+                <span>Procedi alla Pulizia ({scope === 'notes_only' ? notes.length : (countEventsToDelete + (alsoClearNotes ? notes.length : 0))})</span>
               </button>
             ) : (
               <button
@@ -470,7 +539,7 @@ export const ClearAgendaModal: React.FC<ClearAgendaModalProps> = ({
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-red-600 hover:bg-red-700 text-white shadow-lg focus:ring-2 focus:ring-red-500 hover:scale-[1.02] active:scale-[0.98] transition-all"
               >
                 <Trash2 className={`w-4 h-4 ${isDeleting ? 'animate-bounce' : ''}`} />
-                <span>{isDeleting ? 'Eliminazione in corso...' : `Sì, Elimina ${countToDelete} Impegni`}</span>
+                <span>{isDeleting ? 'Eliminazione in corso...' : 'Sì, Conferma Eliminazione'}</span>
               </button>
             )}
           </div>
