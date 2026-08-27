@@ -1,0 +1,6 @@
+{
+  "name": "Agenda Staff Dirigenza - Liceo D'Annunzio",
+  "description": "Calendario condiviso e gestione presenze/disponibilità in tempo reale per lo Staff di Presidenza del Liceo Classico Statale Gabriele d'Annunzio di Pescara.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

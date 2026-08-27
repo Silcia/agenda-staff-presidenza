@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permetti lettura e scrittura per l'agenda condivisa dello staff scolastico
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
