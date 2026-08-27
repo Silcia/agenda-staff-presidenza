@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import liceoLogoImg from '../assets/images/liceo_dannunzio_logo_1787761826556.jpg';
 
 interface SchoolLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -13,6 +14,8 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
   className = '',
   variant = 'header',
 }) => {
+  const [imgError, setImgError] = useState(false);
+
   const sizeMap = {
     sm: 'w-8 h-8',
     md: 'w-11 h-11',
@@ -24,43 +27,46 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
     <div className={`flex items-center gap-3.5 ${className}`}>
       {/* Visual Logo Emblem */}
       <div 
-        className={`relative ${sizeMap[size]} rounded-xl bg-white border-2 border-slate-200 shadow-md flex items-center justify-center p-1 overflow-hidden flex-shrink-0 group`}
+        className={`relative ${sizeMap[size]} rounded-xl bg-white border-2 border-slate-200 shadow-md flex items-center justify-center p-0.5 overflow-hidden shrink-0 group`}
         title="Liceo Classico Statale Gabriele d'Annunzio - Pescara"
       >
-        <img
-          src="/src/assets/images/liceo_dannunzio_logo_1787761826556.jpg"
-          alt="Logo Liceo Classico Gabriele d'Annunzio Pescara"
-          className="w-full h-full object-contain"
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            // Fallback to SVG if image file is not rendered
-            e.currentTarget.style.display = 'none';
-          }}
-        />
+        {!imgError ? (
+          <img
+            src={liceoLogoImg}
+            alt="Logo Liceo Classico Gabriele d'Annunzio Pescara"
+            className="w-full h-full object-contain"
+            referrerPolicy="no-referrer"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          /* Crisp Official Emblem Vector Graphic Fallback */
+          <svg 
+            viewBox="0 0 100 100" 
+            className="w-full h-full p-1"
+            fill="none" 
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {/* Background Shield/Circle */}
+            <circle cx="50" cy="50" r="46" fill="#1D3557" />
+            <circle cx="50" cy="50" r="41" stroke="#E63946" strokeWidth="2.5" />
+            <circle cx="50" cy="50" r="37" stroke="#F1FAEE" strokeWidth="1" strokeDasharray="2 2" />
 
-        {/* Crisp Vector Graphic Overlay / Fallback */}
-        <svg 
-          viewBox="0 0 100 100" 
-          className="w-full h-full absolute inset-0 p-0.5 opacity-0 group-hover:opacity-10 pointer-events-none transition-opacity"
-          fill="none" 
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Classical Column on left */}
-          <path d="M12 24 C16 18, 32 18, 36 24 L36 82 L12 82 Z" fill="#1D3557" />
-          <path d="M16 28 L16 78 M24 28 L24 78 M32 28 L32 78" stroke="#F1FAEE" strokeWidth="2" strokeLinecap="round" />
-          {/* Capital Volute */}
-          <circle cx="15" cy="24" r="5" fill="#1D3557" />
-          <circle cx="33" cy="24" r="5" fill="#1D3557" />
-          
-          {/* Monogram LC */}
-          <text x="36" y="68" fontFamily="Georgia, serif" fontSize="48" fontWeight="bold" fill="#121212">L</text>
-          <text x="50" y="70" fontFamily="Georgia, serif" fontSize="52" fontWeight="900" fill="#121212">C</text>
-          
-          {/* Golden Stars */}
-          <polygon points="86,34 88,40 94,40 89,44 91,50 86,46 81,50 83,44 78,40 84,40" fill="#FFB703" />
-          <polygon points="90,52 91,56 95,56 92,59 93,63 90,60 87,63 88,59 85,56 89,56" fill="#FFB703" />
-          <polygon points="86,68 87,71 90,71 88,73 89,76 86,74 83,76 84,73 82,71 85,71" fill="#FFB703" />
-        </svg>
+            {/* Classical Ionic Column */}
+            <path d="M25 35 C28 30, 42 30, 45 35 L45 74 L25 74 Z" fill="#F1FAEE" />
+            <line x1="30" y1="38" x2="30" y2="70" stroke="#1D3557" strokeWidth="1.5" />
+            <line x1="35" y1="38" x2="35" y2="70" stroke="#1D3557" strokeWidth="1.5" />
+            <line x1="40" y1="38" x2="40" y2="70" stroke="#1D3557" strokeWidth="1.5" />
+            <circle cx="27" cy="35" r="3.5" fill="#FFB703" />
+            <circle cx="43" cy="35" r="3.5" fill="#FFB703" />
+
+            {/* Monogram GD / LC */}
+            <text x="50" y="58" fontFamily="Georgia, serif" fontSize="24" fontWeight="bold" fill="#FFB703">LC</text>
+            <text x="50" y="74" fontFamily="Georgia, serif" fontSize="12" fontWeight="bold" fill="#F1FAEE">PESCARA</text>
+            
+            {/* Golden Star Accent */}
+            <polygon points="50,16 52,22 58,22 53,26 55,32 50,28 45,32 47,26 42,22 48,22" fill="#FFB703" />
+          </svg>
+        )}
       </div>
 
       {/* Brand Typography */}
